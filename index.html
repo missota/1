@@ -14,10 +14,9 @@
         .bubble { max-width: 85%; padding: 10px 14px; border-radius: 18px; font-size: 14px; position: relative; line-height: 1.5; }
         .bubble-other { background-color: #262626; align-self: flex-start; border-bottom-left-radius: 4px; }
         .bubble-me { background-color: #ff3e60; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
-        /* システムメッセージ（入退室）のスタイル */
         .system-log { align-self: center; background: rgba(255,255,255,0.05); color: #888; font-size: 11px; padding: 4px 12px; border-radius: 20px; margin: 8px 0; border: 1px solid rgba(255,255,255,0.1); }
         .timestamp { font-size: 10px; opacity: 0.6; margin-top: 4px; display: block; }
-        #name-modal { background-color: rgba(0,0,0,0.9); backdrop-filter: blur(10px); }
+        #name-modal { background-color: rgba(0,0,0,0.95); backdrop-filter: blur(10px); }
     </style>
 </head>
 <body>
@@ -58,6 +57,8 @@
         </div>
     </div>
 
+    <div class="fixed bottom-0 right-0 w-10 h-10 cursor-default opacity-0" onclick="adminLogin()"></div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -78,7 +79,32 @@
         let isAdmin = false;
         const myUserId = 'id_' + Math.random().toString(36).substr(2, 9);
 
-        // システムログを送信する関数
+        // 管理者ログイン
+        window.adminLogin = () => {
+            const pass = prompt("管理者パスワードを入力:");
+            if (pass === "nisinokouki45") {
+                isAdmin = true;
+                document.getElementById('admin-indicator').classList.remove('hidden');
+                alert("管理者としてログインしました。IP表示と削除が可能です。");
+                location.reload(); // 再描画のためにリロード（またはonSnapshotを再発火）
+            }
+        };
+
+        // ショートカット Ctrl + L
+        window.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'l') { e.preventDefault(); adminLogin(); }
+        });
+
+        // IP取得
+        async function getIP() {
+            try {
+                const res = await fetch('https://api.ipify.org?format=json');
+                const data = await res.json();
+                return data.ip;
+            } catch { return "0.0.0.0"; }
+        }
+
+        // ログ送信
         async function sendSystemLog(type) {
             if (!userName) return;
             const text = type === 'join' ? `${userName} が入室しました` : `${userName} が退出しました`;
@@ -89,28 +115,16 @@
             });
         }
 
-        window.adminLogin = () => {
-            const pass = prompt("管理者パスワードを入力:");
-            if (pass === "otaadmin99") {
-                isAdmin = true;
-                document.getElementById('admin-indicator').classList.remove('hidden');
-                alert("管理者権限を取得しました。");
-            }
-        };
-
         window.onload = () => {
             if (userName) {
                 document.getElementById('name-modal').classList.add('hidden');
                 document.getElementById('display-name').innerText = `👤 ${userName}`;
-                sendSystemLog('join'); // 保存された名前がある場合、読み込み時に入室ログ
+                sendSystemLog('join');
             }
             lucide.createIcons();
         };
 
-        // ページを閉じる時に退出ログを送信（※ブラウザにより動作しない場合あり）
-        window.addEventListener('beforeunload', () => {
-            if(userName) sendSystemLog('leave');
-        });
+        window.addEventListener('beforeunload', () => { if(userName) sendSystemLog('leave'); });
 
         window.saveName = async () => {
             const val = document.getElementById('name-input-field').value.trim();
@@ -123,15 +137,30 @@
             }
         };
 
+        window.resetName = () => {
+            if(confirm("名前を変更しますか？")) {
+                localStorage.removeItem('ota_chat_name');
+                location.reload();
+            }
+        };
+
+        window.deleteMessage = async (id) => {
+            if (isAdmin && confirm("このメッセージを削除しますか？")) {
+                await deleteDoc(doc(db, "anonymous_chat", id));
+            }
+        };
+
         window.sendMessage = async () => {
             const input = document.getElementById('message-input');
             const text = input.value.trim();
             if (!text || !userName) return;
+            const ip = await getIP();
             try {
                 await addDoc(collection(db, "anonymous_chat"), {
                     userName: userName,
                     userId: myUserId,
                     text: text,
+                    userIP: ip,
                     type: 'chat',
                     createdAt: serverTimestamp()
                 });
@@ -150,21 +179,29 @@
                 const time = data.createdAt ? new Date(data.createdAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "";
 
                 if (data.type === 'system') {
-                    // システムログの表示
                     const logDiv = document.createElement('div');
                     logDiv.className = 'system-log';
                     logDiv.innerText = data.text;
                     chatBox.appendChild(logDiv);
                 } else {
-                    // 通常チャットの表示
                     const msgDiv = document.createElement('div');
                     msgDiv.className = isMe ? 'bubble bubble-me' : 'bubble bubble-other';
+                    
+                    // 管理者用ツール
+                    const adminTools = isAdmin ? `
+                        <div class="mt-2 pt-1 border-t border-gray-700 text-[9px] text-yellow-500 flex justify-between items-center">
+                            <span>IP: ${data.userIP || 'Unknown'}</span>
+                            <button onclick="deleteMessage('${docSnap.id}')" class="text-red-400 font-bold hover:underline">削除</button>
+                        </div>
+                    ` : '';
+
                     msgDiv.innerHTML = `
                         <div class="text-[10px] ${isMe ? 'text-pink-200' : 'text-accent'} mb-1 font-bold">
                             ${data.userName || '名無し'}
                         </div>
                         <div class="break-words">${data.text}</div>
                         <span class="timestamp text-right">${time}</span>
+                        ${adminTools}
                     `;
                     chatBox.appendChild(msgDiv);
                 }
