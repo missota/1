@@ -104,7 +104,7 @@
                 if (data.lastSeen) {
                     const lastSeenMs = data.lastSeen.toDate().getTime();
                     // 15秒以内に通信があった人だけをカウント
-                    if (now - lastSeenMs < 15000) count++;
+                    if (now - lastSeenMs < 60000) count++;
                 }
             });
             document.getElementById('online-count').innerText = `${count}人が参加中`;
