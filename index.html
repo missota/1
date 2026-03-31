@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OTA匿名チャット - Live Count</title>
+    <title>匿名チャット v2.1</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -23,7 +23,7 @@
 
     <div id="name-modal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
         <div class="bg-[#1a1a1a] border border-gray-800 w-full max-w-sm p-8 rounded-3xl shadow-2xl text-center">
-            <h2 class="text-2xl font-bold mb-6 text-accent">OTA CHAT</h2>
+            <h2 class="text-2xl font-bold mb-6 text-accent">匿名チャット</h2>
             <input type="text" id="name-input-field" placeholder="名前を入力..." 
                 class="w-full bg-black border border-gray-700 rounded-xl px-4 py-3 mb-4 outline-none focus:border-accent transition text-center text-white">
             <button onclick="saveName()" class="w-full bg-accent text-white font-bold py-3 rounded-xl hover:opacity-90 transition">
@@ -34,11 +34,11 @@
 
     <nav class="bg-black border-b border-gray-800 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
         <div class="flex items-center space-x-3">
-            <div class="flex items-center space-x-1.5 bg-green-500/10 px-2 py-1 rounded-full border border-green-500/20">
+            <div id="status-badge" class="flex items-center space-x-1.5 bg-green-500/10 px-2 py-1 rounded-full border border-green-500/20 cursor-pointer" onclick="showOnlineUsers()">
                 <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span id="online-count" class="text-[10px] font-bold text-green-500">1人が参加中</span>
+                <span id="online-count" class="text-[10px] font-bold text-green-500">接続中...</span>
             </div>
-            <h1 class="text-lg font-bold tracking-tighter">OTA <span class="text-accent">CHAT</span></h1>
+            <h1 class="text-lg font-bold tracking-tighter">匿名 <span class="text-accent">チャット</span></h1>
         </div>
         <div class="flex items-center space-x-3">
             <div id="display-name" class="text-[10px] text-gray-400 font-medium bg-[#262626] px-3 py-1 rounded-full cursor-pointer hover:bg-gray-700" onclick="resetName()"></div>
@@ -60,19 +60,19 @@
         </div>
     </div>
 
-    <div class="fixed bottom-0 right-0 w-8 h-8 opacity-0 cursor-default" onclick="adminLogin()"></div>
+    <div class="fixed bottom-0 right-0 w-12 h-12 z-[999] opacity-0 cursor-default" onclick="adminLogin()"></div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, deleteDoc, doc, setDoc, where, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, deleteDoc, doc, setDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
-            apiKey: "AIzaSyDYVRB8L-nG7pW-4YACGo01grBJoXYHx9c",
-            authDomain: "missoota-4ca5a.firebaseapp.com",
-            projectId: "missoota-4ca5a",
-            storageBucket: "missoota-4ca5a.firebasestorage.app",
-            messagingSenderId: "1057253336204",
-            appId: "1:1057253336204:web:792cd8560d6b3673f307a9"
+            apiKey: "AIzaSyDXOuHk2H3FIJoXxPvQBuur8a35IUHLgWQ",
+            authDomain: "missppta.firebaseapp.com",
+            projectId: "missppta",
+            storageBucket: "missppta.firebasestorage.app",
+            messagingSenderId: "1032480015366",
+            appId: "1:1032480015366:web:f034e6706baf625e7def87"
         };
 
         const app = initializeApp(firebaseConfig);
@@ -81,48 +81,69 @@
         let userName = localStorage.getItem('ota_chat_name');
         let isAdmin = JSON.parse(sessionStorage.getItem('is_ota_admin') || 'false');
         const myUserId = 'id_' + Math.random().toString(36).substr(2, 9);
+        let currentOnlineUsers = [];
 
-        // --- 人数カウント用：生存報告（ハートビート） ---
+        // --- 管理者ログイン機能 ---
+        window.adminLogin = () => {
+            const pass = prompt("管理者パスワードを入力:");
+            if (pass === "admin6352") {
+                isAdmin = true;
+                sessionStorage.setItem('is_ota_admin', 'true');
+                alert("管理者としてログインしました。");
+                location.reload(); 
+            } else if (pass !== null) {
+                alert("パスワードが違います。");
+            }
+        };
+
+        // ショートカットキー設定
+        window.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'l') { 
+                e.preventDefault(); 
+                window.adminLogin(); 
+            }
+        });
+
+        // --- プレゼンス機能 ---
         async function updatePresence() {
             if (!userName) return;
-            // 現在の時刻をFirebaseに保存
             await setDoc(doc(db, "presence", myUserId), {
                 name: userName,
                 lastSeen: serverTimestamp()
             });
         }
+        setInterval(updatePresence, 60000);
 
-        // 定期的に生存確認を送信（5秒ごと）
-        setInterval(updatePresence, 5000);
-
-        // リアルタイム人数集計
         onSnapshot(collection(db, "presence"), (snapshot) => {
             const now = Date.now();
-            let count = 0;
+            currentOnlineUsers = [];
             snapshot.forEach((doc) => {
                 const data = doc.data();
                 if (data.lastSeen) {
                     const lastSeenMs = data.lastSeen.toDate().getTime();
-                    // 15秒以内に通信があった人だけをカウント
-                    if (now - lastSeenMs < 60000) count++;
+                    if (now - lastSeenMs < 120000) {
+                        currentOnlineUsers.push(data.name);
+                    }
                 }
             });
-            document.getElementById('online-count').innerText = `${count}人が参加中`;
+            document.getElementById('online-count').innerText = `${currentOnlineUsers.length}人が参加中`;
         });
 
-        // --- 管理者・チャット基本機能 ---
-        window.adminLogin = () => {
-            const pass = prompt("管理者パスワードを入力:");
-            if (pass === "otaadmin99") {
-                isAdmin = true;
-                sessionStorage.setItem('is_ota_admin', 'true');
-                location.reload(); 
+        window.showOnlineUsers = () => {
+            if (isAdmin) {
+                alert("【管理者用】現在参加中のユーザー:\n" + (currentOnlineUsers.length > 0 ? currentOnlineUsers.join("\n") : "なし"));
             }
         };
 
-        window.addEventListener('keydown', (e) => {
-            if (e.ctrlKey && e.key === 'l') { e.preventDefault(); adminLogin(); }
-        });
+        // --- メッセージ100件制限 ---
+        async function cleanupMessages() {
+            const qAll = query(collection(db, "anonymous_chat"), orderBy("createdAt", "desc"));
+            const snapshot = await getDocs(qAll);
+            if (snapshot.size > 100) {
+                const deletePromises = snapshot.docs.slice(100).map(d => deleteDoc(doc(db, "anonymous_chat", d.id)));
+                await Promise.all(deletePromises);
+            }
+        }
 
         async function getIP() {
             try {
@@ -178,7 +199,6 @@
             const input = document.getElementById('message-input');
             const text = input.value.trim();
             if (!text || !userName) return;
-
             const ip = await getIP();
             try {
                 await addDoc(collection(db, "anonymous_chat"), {
@@ -191,6 +211,7 @@
                 });
                 input.value = "";
                 input.style.height = 'auto';
+                cleanupMessages();
             } catch (e) { console.error(e); }
         };
 
